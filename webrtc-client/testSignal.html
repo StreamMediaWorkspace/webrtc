@@ -1,0 +1,445 @@
+<html>
+<head>
+    <title></title>
+    <style type="text/css">
+        #theirs{
+            position: absolute;
+            top: 100px;
+            left: 100px;
+            width: 500px;
+        }
+        #yours{
+            position: absolute;
+            top: 120px;
+            left: 480px;
+            width: 100px;
+            z-index: 9999;
+            border:1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+<video id="yours" autoplay></video>
+<video id="theirs" autoplay></video>
+</body>
+<script src="./socket.io.js"></script>
+<script>
+    function getQueryVariable(variable) {
+		var query = window.location.search.substring(1);
+		var vars = query.split("&");
+		for (var i=0;i<vars.length;i++) {
+			var pair = vars[i].split("=");
+			if (pair[0] == variable){
+			   return pair[1];
+			}
+		}
+		return "";
+	}
+
+    String.prototype.endWith=function(oString){  
+		var reg = new RegExp(oString+"$");  
+		return reg.test(this);     
+	}  
+
+    class SignalMessge {
+		constructor(roomid, userid, type, data) {
+			this.roomid = roomid;
+			this.userid = userid;
+			this.type = type;
+			this.data = data;
+		}
+	}
+	const Stauts = {
+		disconnected: 0,
+		connecting: 1,
+		connected: 2,
+		disconnecting: 3
+	};
+		
+	class Signal {
+		constructor(userid) {
+			this.socket = io('http://192.168.80.129:2013');
+			this.status = Stauts.connecting;
+			this.roomid = "";
+			this.userid = userid;
+			this.bindEvents();
+		}
+		
+		join(roomid) {
+			var pthis = this;
+			return new Promise(function(resolve, reject) {
+				if (pthis.status != Stauts.connected){
+					if (reject) {
+						reject("joined");
+					}
+				} else {
+					pthis.roomid = roomid;
+					pthis.socket.emit('create or join', JSON.stringify(new SignalMessge(pthis.roomid, pthis.userid, "join", "")));
+					if (resolve) {
+						resolve();
+					}
+				}
+			});
+		}
+		
+		sendOfferSdp(sdp) {
+			var pthis = this;
+			return new Promise(function(resolve, reject) {
+				if(pthis.status != Stauts.connected){
+					console.error("sendOfferSdp error");
+					if (reject) {
+						reject("out room");
+					}
+					return;
+				}
+				
+				pthis.socket.emit('offerSdp', JSON.stringify(new SignalMessge(pthis.roomid, pthis.userid, "sdp", sdp)));
+				if (resolve) {
+					resolve();
+				}
+			});
+		}
+		
+		sendAnswerSdp(sdp) {
+			var pthis = this;
+			return new Promise(function(resolve, reject) {
+				if(pthis.status != Stauts.connected){
+					console.error("sendAnswerSdp error");
+					if (reject) {
+						reject("out room");
+					}
+					return;
+				}
+				
+				pthis.socket.emit('answerSdp', JSON.stringify(new SignalMessge(pthis.roomid, pthis.userid, "sdp", sdp)));
+				if (resolve) {
+					resolve();
+				}
+			});
+		}
+		
+		sendIcecandidate(ice) {
+			var pthis = this;
+			return new Promise(function(resolve, reject) {
+				if(pthis.status != Stauts.connected){
+					console.lerror("sendIcecandidate error");
+					if (reject) {
+						reject("out room");
+					}
+					return;
+				}
+				
+				pthis.socket.emit('icecandidate', JSON.stringify(new SignalMessge(pthis.roomid, pthis.userid, "ice", ice)));
+				if (resolve) {
+					resolve();
+				}
+			});
+		}
+		
+		onConnected() {
+			console.log("onConnected");
+		}
+		
+		onDisconnected() {
+			console.log("onDisconnected");
+		}
+		
+		onJoined(info) {
+			console.log("onJoined", info);
+		}
+		
+		onOfferSdp(info) {
+			console.log("onOfferSdp", info);
+		}
+		
+		onAnswerSdp(info) {
+			console.log("onAnswerSdp", info);
+		}
+		
+		onIcecandidate(ice) {
+			console.log("onIcecandidate", ice);
+		}
+		
+		bindEvents() {
+			var pthis = this;
+			this.socket.on('connect', function() {
+				console.log("connect");
+				pthis.status = Stauts.connected;
+				pthis.onConnected();
+			});
+			
+			this.socket.on('joined', function(data) {
+				pthis.onJoined(JSON.parse(data));
+			});
+			
+			this.socket.on('offerSdp', function(data) {
+				console.log(data);
+				pthis.onOfferSdp(JSON.parse(data));
+			});
+			
+			this.socket.on('answerSdp', function(data) {
+				console.log(data);
+				pthis.onAnswerSdp(JSON.parse(data));
+			});
+			
+			this.socket.on('icecandidate', function(data) {
+				console.log(data);
+				pthis.onIcecandidate(JSON.parse(data));
+			});
+		  
+			this.socket.on('event', function(data) {
+				console.log(data);
+			});
+			
+			this.socket.on('disconnect', function() {
+				console.log("disconnect");
+				pthis.status = Stauts.disconnected;
+			});
+		}
+	};
+	
+	class WebRtc {
+	    constructor() {
+		    this.pc = null;
+			this.stream = null;
+		}
+		
+		startPreview() {
+			var pthis = this;
+			return new Promise(function (resolve, reject) {
+				var yourVideo = document.getElementById("yours");
+				navigator.getUserMedia({
+				 video: {
+				    width:  { exact: 640 },
+					height: { exact: 480 },
+					frameRate: {
+						min: 10,
+						max: 100
+					},
+				 },
+				 audio: false
+			  }, stream => {
+			            pthis.stream = stream;
+						try {
+							yourVideo.srcObject = stream;
+						} catch(error){
+							yourVideo.src = window.URL.createObjectURL(stream);
+						}
+						if (resolve) {
+							resolve(stream);
+						}
+					},
+					err => {
+						console.error("startPreview:", err);
+						if (reject) {
+							reject();
+						}
+					}
+				);
+			});
+		}
+		
+		createOffer(stream) {
+		    var pthis = this;
+			return new Promise(function(resolve, reject) {
+			     if (!!pthis.pc) {
+					if (reject) {
+						reject("created pc");
+					}
+					return;
+				 }
+				 
+				pthis.pc = new RTCPeerConnection(g_iceServer);
+				pthis.pc.onicecandidate = pthis.onicecandidate.bind();
+				pthis.pc.onaddstream = pthis.onaddstream.bind();
+				pthis.pc.addStream(stream);
+				pthis.pc.createOffer().then(function(sdp) {
+				    pthis.pc.setLocalDescription(sdp).then(function() {
+					    if (resolve) {
+						    resolve(sdp);
+						}
+					}).catch(function(e) {
+						if (reject) {
+							reject(e);
+						}
+					});
+				}).catch(function(e) {
+					if (reject) {
+						reject(e);
+					}
+				});
+			});
+		}
+		
+		createAnswer(remoteSdp) {
+		    var pthis = this;
+			return new Promise(function(resolve, reject) {
+			    console.log("setRemoteDescription");
+				pthis.pc = new RTCPeerConnection(null);
+				pthis.pc.onicecandidate = pthis.onicecandidate.bind();
+				pthis.pc.onaddstream = pthis.onaddstream.bind();
+				pthis.pc.addStream(pthis.stream);
+			    pthis.pc.setRemoteDescription(new RTCSessionDescription(remoteSdp), function(){
+				    console.log("createAnswer");
+					pthis.pc.createAnswer(function(sdp) {
+						console.log("setLocalDescription");
+						pthis.pc.setLocalDescription(sdp, function(){
+							if (resolve) {
+								resolve(sdp);
+							}
+						}, function (e) {
+							console.error("setLocalDescription error:", e);
+							if(reject){
+								reject(e);
+							}
+						});
+					}, function(e) {
+						console.error("createAnswer", e);
+						if (reject) {
+							reject(e);
+						}
+					});
+				}, function(e) {
+					if (reject) {
+						reject(e);
+					}
+				});
+			});
+		}
+		
+		setRemoteSpd(sdp){
+		    var pthis = this;
+			return new Promise(function(resolve, reject){
+				if (!pthis.pc) {
+					if (reject) {
+						reject("ddd");
+					}
+					return;
+				}
+				pthis.pc.setRemoteDescription(new RTCSessionDescription(sdp)).then(function(){
+					if (resolve) {
+						resolve();
+					}
+				}).catch(function(e){
+					if (reject) {
+						reject(e);
+					}
+				});
+			});
+		}
+		
+		addIceCandidate(ice) {
+		    var pthis = this;
+			return new Promise(function(resolve, reject) {
+				pthis.pc.addIceCandidate(new RTCIceCandidate(ice)).then(function(){
+					if(resolve){
+						resolve();
+					}
+				}).catch(function(e){
+					if(reject){
+						reject(e);
+					}
+				});
+			});
+		}
+		
+		onicecandidate = function(e) {
+			console.log("onicecandidate:", e);
+		}
+		
+		onaddstream = function(event) {
+			var theirs = document.getElementById("theirs");
+			theirs.srcObject = event.stream;
+			//theirs.play().then(function(){console.log("play sucess")}).catch(function(e){console.error(e);});
+		}
+	};
+	
+	var g_iceServer = {iceServers: [{urls: "stun:stun.services.mozilla.com"}], sdpSemantics:'plan-b'};
+	var g_userid = "yang" + Math.random().toString(36).slice(-8);
+	var g_roomid = "roomid";//getQueryVariable("roomid");//"roomid";// + Math.random().toString(36).slice(-8);
+	var g_role = getQueryVariable("role");
+	
+	console.log("userid:", g_userid, ",roomid:", g_roomid, ",role:", g_role);
+	
+	var webrtc = new WebRtc();	
+	var signal = new Signal(g_userid);
+	
+	webrtc.onicecandidate = function(event) {
+	    if(event.candidate) {
+			console.log("onicecandidate===", event);
+			signal.sendIcecandidate(event.candidate);
+		}
+	}
+	
+	signal.onConnected = function() {
+	    console.log("room id:", g_roomid, ",current userid:", g_userid);
+		signal.join(g_roomid).then(function() {
+			console.log("joined");
+		}).catch(function(e) {
+			console.error("join failed", e);
+		});
+	}
+	
+	
+	signal.onJoined = function(info) {console.log(info.users, info.users._data.length);
+		for(var userid in info.users._data) {
+			if (userid.endWith(g_userid)) {
+				console.log("current user joined success");
+			} else {
+				console.log("user joined ", info.users._data[userid]);
+			}
+		}
+		
+		startWebRtc().then(function(stream) {
+			if (info.users.size>1) {
+				webrtc.createOffer(stream).then(function(sdp){
+					signal.sendOfferSdp(sdp);
+				}).catch(function(e){
+					console.error("createOffer:", e);
+				});
+			}
+		}).then(function(e){
+			
+		});
+	}
+	
+	signal.onOfferSdp = function(info) {
+		console.log("onOfferSdp======", info.data.sdp);
+		
+		webrtc.createAnswer(info.data).then(function(sdp) {
+			signal.sendAnswerSdp(sdp);
+		}).catch(function(e){
+			console.error("answer", e);
+		});
+	}
+	
+	signal.onAnswerSdp = function(info) {
+		console.log("onAnswerSdp", info.data);
+		webrtc.setRemoteSpd(info.data).then(function(e){
+			console.log("setRemoteSpd sucess");
+		}).catch(function(e){
+			console.error("setRemoteSpd:", e);
+		});
+	}
+	
+	signal.onIcecandidate = function(info) {
+		webrtc.addIceCandidate(info.data);
+	}
+	
+	function startWebRtc() {
+		return new Promise(function(resolve, reject){
+			webrtc.startPreview().then(function(stream){
+				console.log("start preview success");
+				if(resolve){
+					resolve(stream);
+				}
+			}).catch(function(e){
+				console.error("startPreview:", e);
+				if(reject){
+					reject(e);
+				}
+			});
+		});
+	}
+	
+</script>
