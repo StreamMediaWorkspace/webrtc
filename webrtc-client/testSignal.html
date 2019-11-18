@@ -58,10 +58,14 @@
 		
 	class Signal {
 		constructor(userid) {
-			this.socket = io('http://192.168.80.129:2013');
+			this.socket = null;
 			this.status = Stauts.connecting;
 			this.roomid = "";
 			this.userid = userid;
+		}
+		
+		connect(){
+			this.socket = io('http://192.168.80.129:2013');
 			this.bindEvents();
 		}
 		
@@ -239,7 +243,7 @@
 			});
 		}
 		
-		createOffer(stream) {
+		createOffer() {
 		    var pthis = this;
 			return new Promise(function(resolve, reject) {
 			     if (!!pthis.pc) {
@@ -252,7 +256,7 @@
 				pthis.pc = new RTCPeerConnection(g_iceServer);
 				pthis.pc.onicecandidate = pthis.onicecandidate.bind();
 				pthis.pc.onaddstream = pthis.onaddstream.bind();
-				pthis.pc.addStream(stream);
+				pthis.pc.addStream(pthis.stream);
 				pthis.pc.createOffer().then(function(sdp) {
 				    pthis.pc.setLocalDescription(sdp).then(function() {
 					    if (resolve) {
@@ -363,6 +367,7 @@
 	
 	var webrtc = new WebRtc();	
 	var signal = new Signal(g_userid);
+	start();
 	
 	webrtc.onicecandidate = function(event) {
 	    if(event.candidate) {
@@ -390,17 +395,17 @@
 			}
 		}
 		
-		startWebRtc().then(function(stream) {
-			if (info.users.size>1) {
-				webrtc.createOffer(stream).then(function(sdp){
+		if (info.users.size>1) {
+				setTimeout(function(){
+				webrtc.createOffer().then(function(sdp){
 					signal.sendOfferSdp(sdp);
 				}).catch(function(e){
 					console.error("createOffer:", e);
 				});
-			}
-		}).then(function(e){
+			}, 500);/////////todo not good
+		} else {
 			
-		});
+		}
 	}
 	
 	signal.onOfferSdp = function(info) {
@@ -439,6 +444,15 @@
 					reject(e);
 				}
 			});
+		});
+	}
+	
+	function start() {
+		webrtc.startPreview().then(function(stream){
+			console.log("start preview success");
+			signal.connect();
+		}).catch(function(e){
+			console.error("startPreview:", e);
 		});
 	}
 	
